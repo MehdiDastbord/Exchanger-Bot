@@ -66,27 +66,7 @@ async function main() {
     { body: commands }
   );
   console.log("Global commands registered successfully.");
-
-  // Also register the same commands to every guild the bot is currently in.
-  // This keeps the bot multi-server while making slash commands available
-  // immediately instead of waiting for global-command propagation.
-  const currentUser = await rest.get(Routes.user());
-  const guilds = await rest.get(Routes.userGuilds());
-  console.log(`Registering instant guild commands for ${guilds.length} guild(s)...`);
-
-  for (const guild of guilds) {
-    try {
-      await rest.put(
-        Routes.applicationGuildCommands(currentUser.id, guild.id),
-        { body: commands }
-      );
-      console.log(`  ✓ ${guild.name} (${guild.id})`);
-    } catch (err) {
-      console.warn(`  ✗ Could not register commands in ${guild.name} (${guild.id}): ${err.message}`);
-    }
-  }
-
-  console.log("Command deployment completed.");
+  console.log("Global Discord commands may take time to propagate to every server.");
 }
 
 main().catch(err => {
