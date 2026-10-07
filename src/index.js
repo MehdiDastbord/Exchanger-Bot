@@ -18,6 +18,7 @@ const {
   getConfig,
   createRequest,
   attachMessageId,
+  deleteRequest,
   getRequest,
   claimRequest,
   releaseAcceptedRequest
@@ -35,8 +36,7 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
-function errorText(error) {
-  console.error(error);
+function errorText() {
   return "Something went wrong. Please try again.";
 }
 
@@ -209,59 +209,91 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
+      await interaction.deferReply({ ephemeral: true });
+
       const config = getConfig(interaction.guildId);
       if (!config?.request_channel_id || !config?.exchange_role_id) {
-        return interaction.reply({
+        return interaction.editReply({
           content: "❌ Exchange is not configured correctly by an administrator.",
-          ephemeral: true
         });
       }
 
       const requestChannel = await interaction.guild.channels.fetch(config.request_channel_id).catch(() => null);
       if (!requestChannel?.isTextBased()) {
-        return interaction.reply({
+        return interaction.editReply({
           content: "❌ The configured request channel cannot be accessed.",
-          ephemeral: true
+        });
+      }
+
+      const botMember = interaction.guild.members.me;
+      const botPermissions = botMember && requestChannel.permissionsFor(botMember);
+      if (!botPermissions?.has([
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.EmbedLinks
+      ])) {
+        return interaction.editReply({
+          content: "❌ I need View Channel, Send Messages, and Embed Links permissions in the configured request channel."
         });
       }
 
       const requestId = `${interaction.guildId}-${interaction.id}`;
-      createRequest({
-        requestId,
-        guildId: interaction.guildId,
-        requesterId: interaction.user.id,
-        requesterUsername: interaction.user.username,
-        requesterTag: interaction.user.tag,
-        bannerUrl: advertisementText
-      });
-
       const requesterTag = safeDisplayName(interaction.user.tag);
       const requesterUsername = safeDisplayName(interaction.user.username);
       const reviewHeader =
         `<@&${config.exchange_role_id}>  •  **${requesterUsername}**  •  \`${requesterTag}\`  •  ID: \`${interaction.user.id}\``;
 
-      const embed = new EmbedBuilder()
+      const detailsEmbed = new EmbedBuilder()
         .setTitle("New Exchange Request")
-        .setDescription(`**Request ID:** \`${requestId}\`\n\n${sanitizeMentions(advertisementText)}`)
+        .setDescription(`**Request ID:** \`${requestId}\``)
         .setFooter({ text: "Review this request using the buttons below." })
         .setTimestamp();
 
-      const sent = await requestChannel.send({
-        content: reviewHeader,
-        embeds: [embed],
-        components: [requestButtons(requestId)],
-        allowedMentions: {
-          roles: [config.exchange_role_id],
-          users: [],
-          repliedUser: false
+      const advertisementEmbed = new EmbedBuilder()
+        .setDescription(sanitizeMentions(advertisementText));
+
+      let sentMessage;
+      try {
+        createRequest({
+          requestId,
+          guildId: interaction.guildId,
+          requesterId: interaction.user.id,
+          requesterUsername: interaction.user.username,
+          requesterTag: interaction.user.tag,
+          bannerUrl: advertisementText
+        });
+
+        sentMessage = await requestChannel.send({
+          content: reviewHeader,
+          embeds: [detailsEmbed, advertisementEmbed],
+          components: [requestButtons(requestId)],
+          allowedMentions: {
+            roles: [config.exchange_role_id],
+            users: [],
+            repliedUser: false
+          }
+        });
+
+        attachMessageId(requestId, sentMessage.id);
+      } catch (error) {
+        console.error(`Could not submit exchange request ${requestId}:`, error);
+        if (sentMessage) {
+          await sentMessage.delete().catch(deleteError => {
+            console.error(`Could not remove incomplete review message ${sentMessage.id}:`, deleteError);
+          });
         }
-      });
+        try {
+          deleteRequest(requestId);
+        } catch (deleteError) {
+          console.error(`Could not remove incomplete exchange request ${requestId}:`, deleteError);
+        }
+        return interaction.editReply({
+          content: "❌ I couldn't post your request. Please ask an administrator to check the bot's permissions and try again."
+        });
+      }
 
-      attachMessageId(requestId, sent.id);
-
-      return interaction.reply({
-        content: "✅ Your exchange request has been submitted for review.",
-        ephemeral: true
+      return interaction.editReply({
+        content: "✅ Your exchange request has been submitted for review."
       });
     }
 
@@ -400,15 +432,17 @@ client.on("interactionCreate", async (interaction) => {
     }
 
   } catch (err) {
-    console.error(err);
+    console.error("Interaction failed:", err);
 
     if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
       await interaction.reply({
-        content: errorText(err),
+        content: errorText(),
         ephemeral: true
       }).catch(() => {});
     } else if (interaction.isRepliable() && interaction.deferred) {
-      await interaction.editReply({ content: errorText(err) }).catch(() => {});
+      await interaction.editReply({ content: errorText() }).catch(replyError => {
+        console.error("Could not report interaction failure to user:", replyError);
+      });
     }
   }
 });

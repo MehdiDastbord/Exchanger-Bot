@@ -82,6 +82,11 @@ function attachMessageId(requestId, messageId) {
     .run(messageId, requestId);
 }
 
+function deleteRequest(requestId) {
+  db.prepare("DELETE FROM requests WHERE request_id = ?")
+    .run(requestId);
+}
+
 function getRequest(requestId) {
   return db.prepare("SELECT * FROM requests WHERE request_id = ?").get(requestId);
 }
@@ -116,6 +121,7 @@ module.exports = {
   setConfig,
   createRequest,
   attachMessageId,
+  deleteRequest,
   getRequest,
   getRequestByMessage,
   claimRequest,
