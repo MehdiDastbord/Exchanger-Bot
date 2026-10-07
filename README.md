@@ -6,7 +6,8 @@
 - Per-guild review/final channels and custom mention role.
 - Automatically creates/uses the bot role `Ex Bot` in every guild.
 - Review message shows custom exchange role + requester username/tag/ID and the submitted multi-line advertisement.
-- Final exchange channel receives only the submitted multi-line advertisement, including clickable links.
+- Final exchange channel receives the submitted advertisement as regular text messages, including clickable links.
+- Advertisements longer than Discord's 2,000-character message limit are split across consecutive regular messages.
 - Atomic Accept/Decline locking.
 - Review message deleted after decision.
 - Detailed requester DM on Accept/Decline.

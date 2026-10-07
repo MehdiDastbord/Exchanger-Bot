@@ -24,7 +24,7 @@ const {
   releaseAcceptedRequest
 } = require("./db");
 
-const { sanitizeMentions, safeDisplayName } = require("./utils");
+const { sanitizeMentions, safeDisplayName, splitMessage } = require("./utils");
 
 const EX_BOT_ROLE_NAME = "Ex Bot";
 
@@ -356,28 +356,40 @@ client.on("interactionCreate", async (interaction) => {
         // Sanitize message text and Discord mention syntax before publication.
         const safeContent = sanitizeMentions(request.banner_url);
 
-        // Final exchange channel: publish only the submitted advertisement.
-        // Links remain clickable while Discord mentions are made harmless.
-        const publishEmbed = new EmbedBuilder()
-          .setDescription(safeContent);
-
+        const publishedMessages = [];
         try {
-          await finalChannel.send({
-            embeds: [publishEmbed],
-            allowedMentions: {
-              parse: [],
-              users: [],
-              roles: [],
-              repliedUser: false
-            }
-          });
+          for (const content of splitMessage(safeContent)) {
+            publishedMessages.push(await finalChannel.send({
+              content,
+              allowedMentions: {
+                parse: [],
+                users: [],
+                roles: [],
+                repliedUser: false
+              }
+            }));
+          }
         } catch (error) {
-          try {
-            if (!releaseAcceptedRequest(requestId, interaction.user.id)) {
-              console.error(`Could not release failed exchange request ${requestId} for retry.`);
+          let rollbackSucceeded = true;
+          for (const message of publishedMessages) {
+            try {
+              await message.delete();
+            } catch (deleteError) {
+              rollbackSucceeded = false;
+              console.error(`Could not remove partially published exchange message ${message.id}:`, deleteError);
             }
-          } catch (releaseError) {
-            console.error(`Could not release failed exchange request ${requestId} for retry:`, releaseError);
+          }
+
+          if (rollbackSucceeded) {
+            try {
+              if (!releaseAcceptedRequest(requestId, interaction.user.id)) {
+                console.error(`Could not release failed exchange request ${requestId} for retry.`);
+              }
+            } catch (releaseError) {
+              console.error(`Could not release failed exchange request ${requestId} for retry:`, releaseError);
+            }
+          } else {
+            console.error(`Exchange request ${requestId} remains accepted to avoid duplicate publication.`);
           }
           throw error;
         }
