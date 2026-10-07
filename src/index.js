@@ -90,7 +90,7 @@ async function requireAdmin(interaction) {
   return true;
 }
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`Serving ${client.guilds.cache.size} guild(s).`);
   await ensureAllGuildRoles();
