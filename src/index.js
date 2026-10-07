@@ -117,16 +117,20 @@ client.on("interactionCreate", async (interaction) => {
           .setCustomId("exchange_modal")
           .setTitle("Server Exchange");
 
-        const banner = new TextInputBuilder()
-          .setCustomId("banner_url")
-          .setLabel("Server banner URL")
-          .setPlaceholder("https://cdn.discordapp.com/...")
-          .setStyle(TextInputStyle.Short)
+        // Discord modals support a paragraph field up to 4000 characters.
+        // This allows a complete server advertisement: title, description,
+        // invite links, website links, social links, etc. (around 10 lines
+        // or more) instead of accepting only an image URL.
+        const bannerContent = new TextInputBuilder()
+          .setCustomId("banner_content")
+          .setLabel("Your server banner / advertisement")
+          .setPlaceholder("Server Name\nDescription\nInvite: https://discord.gg/...\nWebsite: https://...\nMore information...")
+          .setStyle(TextInputStyle.Paragraph)
           .setRequired(true)
-          .setMaxLength(1000);
+          .setMaxLength(4000);
 
         modal.addComponents(
-          new ActionRowBuilder().addComponents(banner)
+          new ActionRowBuilder().addComponents(bannerContent)
         );
 
         return interaction.showModal(modal);
@@ -137,14 +141,14 @@ client.on("interactionCreate", async (interaction) => {
           content:
             "**🤖 Exchange Bot — راهنمای استفاده**\n\n" +
             "**دستورات عمومی:**\n" +
-            "`/exchange` — ارسال درخواست اکسچنج و بنر برای بررسی.\n" +
+            "`/exchange` — ارسال متن بنر/تبلیغ سرور و لینک‌های آن برای بررسی.\n" +
             "`/help` — نمایش همین راهنما.\n\n" +
             "**دستورات مدیریت (Administrator):**\n" +
             "`/exrequestchannel` — تعیین چنل بررسی درخواست‌ها.\n" +
             "`/setexchannel` — تعیین چنل نهایی اکسچنج.\n" +
             "`/exrole` — تعیین رول بررسی‌کننده‌ها.\n\n" +
             "**روند اکسچنج:**\n" +
-            "1. با `/exchange` لینک مستقیم بنر را ارسال کنید.\n" +
+            "1. با `/exchange` متن تبلیغ سرور و لینک‌های خود را وارد کنید.\n" +
             "2. درخواست در چنل بررسی نمایش داده می‌شود.\n" +
             "3. با **Accept** درخواست منتشر می‌شود و با **Decline** رد می‌شود.\n" +
             "4. بعد از تصمیم، پیام درخواست از چنل بررسی حذف می‌شود.\n" +
@@ -198,11 +202,11 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.isModalSubmit() && interaction.customId === "exchange_modal") {
-      const bannerUrl = interaction.fields.getTextInputValue("banner_url").trim();
+      const bannerContent = interaction.fields.getTextInputValue("banner_content").trim();
 
-      if (!isValidImageUrl(bannerUrl)) {
+      if (!bannerContent) {
         return interaction.reply({
-          content: "❌ That does not look like a valid image/banner URL. Use a direct PNG, JPG, GIF, or WebP URL (Discord CDN URLs are supported).",
+          content: "❌ Please enter your server banner/advertisement.",
           ephemeral: true
         });
       }
@@ -230,7 +234,7 @@ client.on("interactionCreate", async (interaction) => {
         requesterId: interaction.user.id,
         requesterUsername: interaction.user.username,
         requesterTag: interaction.user.tag,
-        bannerUrl
+        bannerUrl: bannerContent
       });
 
       const requesterTag = safeDisplayName(interaction.user.tag);
@@ -240,8 +244,7 @@ client.on("interactionCreate", async (interaction) => {
 
       const embed = new EmbedBuilder()
         .setTitle("New Exchange Request")
-        .setDescription(`**Request ID:** \`${requestId}\``)
-        .setImage(bannerUrl)
+        .setDescription(`**Request ID:** \`${requestId}\`\n\n${sanitizeMentions(bannerContent)}`)
         .setFooter({ text: "Review this request using the buttons below." })
         .setTimestamp();
 
@@ -323,12 +326,12 @@ client.on("interactionCreate", async (interaction) => {
         // Sanitize message text and all Discord mention syntax. The image itself is not modified:
         // if @everyone is literally printed inside the image pixels, Discord cannot remove it
         // without image editing. The published Discord message itself can never ping anyone.
-        const safeUrl = sanitizeMentions(request.banner_url);
+        const safeContent = sanitizeMentions(request.banner_url);
 
-        // Final exchange channel: publish only the original submitted banner/form content.
-        // No requester ID, tag, reviewer, or anti-scam metadata is added here.
+        // Final exchange channel: publish only the submitted advertisement.
+        // Links remain clickable while Discord mentions are made harmless.
         const publishEmbed = new EmbedBuilder()
-          .setImage(request.banner_url);
+          .setDescription(safeContent);
 
         await finalChannel.send({
           embeds: [publishEmbed],
@@ -359,7 +362,7 @@ client.on("interactionCreate", async (interaction) => {
             `• Server ID: \`${request.guild_id}\`\n` +
             `• Requester ID: \`${request.requester_id}\`\n` +
             `• Review Channel: ${requestChannelName}\n` +
-            `• Banner: ${sanitizeMentions(request.banner_url)}\n\n` +
+            `• Banner / Advertisement: ${sanitizeMentions(request.banner_url)}\n\n` +
             `**اطلاعات بررسی**\n` +
             `• نتیجه: **${resultText}**\n` +
             `• بررسی‌کننده: **${reviewerTag}**\n` +
