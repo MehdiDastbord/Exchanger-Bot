@@ -100,6 +100,16 @@ function claimRequest(requestId, status, processedBy) {
   return result.changes === 1;
 }
 
+function releaseAcceptedRequest(requestId, processedBy) {
+  const result = db.prepare(`
+    UPDATE requests
+    SET status = 'pending', processed_at = NULL, processed_by = NULL
+    WHERE request_id = ? AND status = 'accepted' AND processed_by = ?
+  `).run(requestId, processedBy);
+
+  return result.changes === 1;
+}
+
 module.exports = {
   db,
   getConfig,
@@ -108,5 +118,6 @@ module.exports = {
   attachMessageId,
   getRequest,
   getRequestByMessage,
-  claimRequest
+  claimRequest,
+  releaseAcceptedRequest
 };

@@ -19,10 +19,11 @@ const {
   createRequest,
   attachMessageId,
   getRequest,
-  claimRequest
+  claimRequest,
+  releaseAcceptedRequest
 } = require("./db");
 
-const { isValidImageUrl, sanitizeMentions, safeDisplayName } = require("./utils");
+const { sanitizeMentions, safeDisplayName } = require("./utils");
 
 const EX_BOT_ROLE_NAME = "Ex Bot";
 
@@ -117,20 +118,17 @@ client.on("interactionCreate", async (interaction) => {
           .setCustomId("exchange_modal")
           .setTitle("Server Exchange");
 
-        // Discord modals support a paragraph field up to 4000 characters.
-        // This allows a complete server advertisement: title, description,
-        // invite links, website links, social links, etc. (around 10 lines
-        // or more) instead of accepting only an image URL.
-        const bannerContent = new TextInputBuilder()
-          .setCustomId("banner_content")
-          .setLabel("Your server banner / advertisement")
-          .setPlaceholder("Server Name\nDescription\nInvite: https://discord.gg/...\nWebsite: https://...\nMore information...")
+        // Discord paragraph fields support up to 4000 characters.
+        const advertisementText = new TextInputBuilder()
+          .setCustomId("advertisement_text")
+          .setLabel("Advertisement text (links optional)")
+          .setPlaceholder("Write a description, invite, website, social links, and any other details...")
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true)
           .setMaxLength(4000);
 
         modal.addComponents(
-          new ActionRowBuilder().addComponents(bannerContent)
+          new ActionRowBuilder().addComponents(advertisementText)
         );
 
         return interaction.showModal(modal);
@@ -202,11 +200,11 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.isModalSubmit() && interaction.customId === "exchange_modal") {
-      const bannerContent = interaction.fields.getTextInputValue("banner_content").trim();
+      const advertisementText = interaction.fields.getTextInputValue("advertisement_text").trim();
 
-      if (!bannerContent) {
+      if (!advertisementText) {
         return interaction.reply({
-          content: "❌ Please enter your server banner/advertisement.",
+          content: "❌ Please enter your advertisement text. Links are optional.",
           ephemeral: true
         });
       }
@@ -234,7 +232,7 @@ client.on("interactionCreate", async (interaction) => {
         requesterId: interaction.user.id,
         requesterUsername: interaction.user.username,
         requesterTag: interaction.user.tag,
-        bannerUrl: bannerContent
+        bannerUrl: advertisementText
       });
 
       const requesterTag = safeDisplayName(interaction.user.tag);
@@ -244,7 +242,7 @@ client.on("interactionCreate", async (interaction) => {
 
       const embed = new EmbedBuilder()
         .setTitle("New Exchange Request")
-        .setDescription(`**Request ID:** \`${requestId}\`\n\n${sanitizeMentions(bannerContent)}`)
+        .setDescription(`**Request ID:** \`${requestId}\`\n\n${sanitizeMentions(advertisementText)}`)
         .setFooter({ text: "Review this request using the buttons below." })
         .setTimestamp();
 
@@ -323,9 +321,7 @@ client.on("interactionCreate", async (interaction) => {
       const resultText = status === "accepted" ? "قبول شد ✅" : "رد شد ❌";
 
       if (action === "exchange_accept") {
-        // Sanitize message text and all Discord mention syntax. The image itself is not modified:
-        // if @everyone is literally printed inside the image pixels, Discord cannot remove it
-        // without image editing. The published Discord message itself can never ping anyone.
+        // Sanitize message text and Discord mention syntax before publication.
         const safeContent = sanitizeMentions(request.banner_url);
 
         // Final exchange channel: publish only the submitted advertisement.
@@ -333,23 +329,39 @@ client.on("interactionCreate", async (interaction) => {
         const publishEmbed = new EmbedBuilder()
           .setDescription(safeContent);
 
-        await finalChannel.send({
-          embeds: [publishEmbed],
-          allowedMentions: {
-            parse: [],
-            users: [],
-            roles: [],
-            repliedUser: false
+        try {
+          await finalChannel.send({
+            embeds: [publishEmbed],
+            allowedMentions: {
+              parse: [],
+              users: [],
+              roles: [],
+              repliedUser: false
+            }
+          });
+        } catch (error) {
+          try {
+            if (!releaseAcceptedRequest(requestId, interaction.user.id)) {
+              console.error(`Could not release failed exchange request ${requestId} for retry.`);
+            }
+          } catch (releaseError) {
+            console.error(`Could not release failed exchange request ${requestId} for retry:`, releaseError);
           }
-        });
+          throw error;
+        }
       }
 
       // Respond to the button interaction first, then remove the request message.
       await interaction.deferUpdate();
-      await interaction.message.delete().catch(() => {});
+      await interaction.message.delete().catch(error => {
+        console.warn(`Could not delete processed exchange request ${requestId}:`, error.message);
+      });
 
       // Notify the requester by DM. DM failure must never undo the decision.
-      const requester = await client.users.fetch(request.requester_id).catch(() => null);
+      const requester = await client.users.fetch(request.requester_id).catch(error => {
+        console.warn(`Could not fetch requester ${request.requester_id} for notification:`, error.message);
+        return null;
+      });
       if (requester) {
         const dmEmbed = new EmbedBuilder()
           .setTitle(status === "accepted" ? "✅ درخواست اکسچنج قبول شد" : "❌ درخواست اکسچنج رد شد")
@@ -361,8 +373,7 @@ client.on("interactionCreate", async (interaction) => {
             `• Server: **${guildName}**\n` +
             `• Server ID: \`${request.guild_id}\`\n` +
             `• Requester ID: \`${request.requester_id}\`\n` +
-            `• Review Channel: ${requestChannelName}\n` +
-            `• Banner / Advertisement: ${sanitizeMentions(request.banner_url)}\n\n` +
+            `• Review Channel: ${requestChannelName}\n\n` +
             `**اطلاعات بررسی**\n` +
             `• نتیجه: **${resultText}**\n` +
             `• بررسی‌کننده: **${reviewerTag}**\n` +
@@ -376,7 +387,11 @@ client.on("interactionCreate", async (interaction) => {
           .setFooter({ text: "Exchange Bot • itskingpubgyt - Mehdi" })
           .setTimestamp(processedAt);
 
-        await requester.send({ embeds: [dmEmbed] }).catch(err => {
+        const advertisementEmbed = new EmbedBuilder()
+          .setTitle("Submitted Advertisement")
+          .setDescription(sanitizeMentions(request.banner_url));
+
+        await requester.send({ embeds: [dmEmbed, advertisementEmbed] }).catch(err => {
           console.warn(`Could not DM requester ${request.requester_id}:`, err.message);
         });
       }

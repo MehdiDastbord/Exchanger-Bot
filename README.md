@@ -1,5 +1,6 @@
 # Discord Exchange Bot v1.4.0
 
+- Requires Node.js 20.x (`.nvmrc`, `package.json`, and the Docker image use Node 20).
 - Global slash commands for multi-server use, plus instant guild registration for servers the bot is already in.
 - Unlimited exchange submissions per user.
 - Per-guild review/final channels and custom mention role.
@@ -21,7 +22,7 @@ DATABASE_PATH=/data/exchange.sqlite
 `GUILD_ID` is not used.
 
 ## Permissions
-The bot needs View Channel, Send Messages, Embed Links, Read Message History, and Manage Roles. Its highest role must be able to manage the `Ex Bot` role.
+The bot needs View Channel, Send Messages, Embed Links, Read Message History, Manage Messages, and Manage Roles. Its highest role must be able to manage the `Ex Bot` role.
 
 ## Commands
 `/exchange` — Submit a multi-line server advertisement (text + links).

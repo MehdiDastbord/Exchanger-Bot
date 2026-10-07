@@ -15,7 +15,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("exchange")
-    .setDescription("Submit your server banner for an exchange request."),
+    .setDescription("Submit your server advertisement: text, links, and more."),
 
   new SlashCommandBuilder()
     .setName("setexchannel")
